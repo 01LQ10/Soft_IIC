@@ -143,6 +143,88 @@ soft_iic_basic_deinit();
 5. **不关中断**：主模式 I2C 只会被 ISR 拉长电平，合法。仅当总线上有 SMBus
    超时从机时才需要临界段。
 
+### delay_us 实现示例
+
+移植模板（`interface/driver_soft_iic_interface_template.c`）里的
+`soft_iic_interface_delay_us()` 是空 stub，但位拨 IIC 的**全部时序都靠这一个
+函数撑起来**，它是整个平台实现里最重要的部分，不能用空循环凑时间。下面是
+工程侧 `User/Src/driver_soft_iic_interface.c` 的 PY32F030 实现（SysTick 由 HAL
+配成 1 ms 重装，48 MHz 下 LOAD=47999，分辨率 20.83 ns）：
+
+```c
+/* SysTick 每微秒的计数值，初始化时算一次。
+ * M0+ 没有硬件除法器，SystemCoreClock / 1000000U 是软件除法（几百个周期），
+ * 绝不能放进热路径（§3 的教训：每次多花 ~2.8 us，SCL 80 kHz -> 32 kHz）。 */
+static uint32_t gs_ticks_per_us = 0U;
+
+static void SOFT_IIC_CalibrateTiming(void)
+{
+    uint32_t ticks = SystemCoreClock / 1000000U;
+
+    gs_ticks_per_us = (ticks == 0U) ? 1U : ticks;
+}
+
+void soft_iic_interface_delay_us(uint32_t us)
+{
+    uint32_t reload;
+    uint32_t ticks;
+    uint32_t start;
+    uint32_t elapsed;
+    uint32_t now;
+
+    if (us == 0U)
+    {
+        return;
+    }
+
+    /* 热路径不做除法：每微秒的计数值在初始化时算好（懒校准兜底） */
+    if (gs_ticks_per_us == 0U)
+    {
+        SOFT_IIC_CalibrateTiming();
+    }
+    reload = SysTick->LOAD + 1U;
+
+    /* 超过一个 SysTick 周期时先走毫秒级延时，剩下的不足 1 ms 再轮询 */
+    if ((us > 1000U) || (reload == 0U))
+    {
+        uint32_t ms = us / 1000U;
+
+        if (ms != 0U)
+        {
+            HAL_Delay(ms);
+        }
+        us = us % 1000U;
+        if ((us == 0U) || (reload == 0U))
+        {
+            return;
+        }
+    }
+
+    ticks = us * gs_ticks_per_us;
+    start = SysTick->VAL;
+    do
+    {
+        now = SysTick->VAL;
+        /* VAL 递减，回绕（now > start）时补上一个重装值 */
+        elapsed = (start >= now) ? (start - now) : (reload + start - now);
+    } while (elapsed < ticks);
+}
+```
+
+要点：
+
+- **计时源用自由运行计数器（SysTick）轮询**，不要用 `for()` 空循环——空循环
+  的耗时随优化等级（`-O0/-O2/-O3`）变化，时序会漂移。
+- **每微秒的计数值只算一次**（init 时校准并缓存，`gs_ticks_per_us`），
+  热路径只做乘法；任何 `SystemCoreClock / 1e6` 出现在热路径都是 bug。
+- **回绕处理**：SysTick 是递减计数器，轮询期间会从 0 回绕到 LOAD 重装，
+  `now > start` 时补加 `reload = SysTick->LOAD + 1U`，否则跨重装点的延时
+  会瞬间返回。
+- 精度下限：单次调用实测约 `us + 2.2 us`（轮询循环本身的粒度），这是 SCL
+  速率的瓶颈（§3）；想再快只能下调 `half_delay_us`（下限受 tHIGH 约束）。
+- 换平台时计时源可以换成别的（硬件定时器、DWT 等），但必须满足：确定性
+  固定分辨率、与优化等级无关、热路径无除法。
+
 ## 7. 验证
 
 - 离线（槽位模式）：

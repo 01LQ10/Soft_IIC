@@ -1,37 +1,63 @@
 /**
+ * Copyright (c) 2026 LQ
+ *
+ * The MIT License (MIT)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
  * @file      driver_soft_iic.h
  * @brief     driver software iic header file
- * @version   1.0.0
+ * @version   1.1.0
  * @author    LQ
  * @date      2026-11-04
- * @license   MIT
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
  *
- * 平台无关的软件（位拨）IIC 主机驱动：
- *   - 只做 7 位地址主机模式，支持 START / 重复 START / STOP、ACK 判定、
- *     从机时钟延展等待与超时、9 时钟总线恢复；
- *   - 引脚访问全部经 handle 的函数指针槽位（LibDriver 注入模式），
- *     本文件（src/）不出现任何 HAL / 平台头；
- *   - 本分支（interface）是槽位模式专用版本（SOFT_IIC_PORT_INLINE=0），
- *     端口层宏在 driver_soft_iic.c 顶部映射到 handle 槽位，
- *     支持多实例（每条总线一个 handle）、可在 host 上 mock；
- *     内联模式（static inline 端口层）在 inline 分支。
+ * Platform independent software (bit banged) iic master driver:
+ *   - 7 bit address master mode only, with start / repeated start / stop,
+ *     acknowledge detection, slave clock stretching wait with timeout and a
+ *     9 clock bus recovery;
+ *   - every pin access goes through the handle function pointer slots
+ *     (LibDriver injection style), no HAL / platform header appears in src/;
+ *   - this branch (interface) is the slot mode version
+ *     (SOFT_IIC_PORT_INLINE=0); the port layer macros at the top of
+ *     driver_soft_iic.c map to the handle slots, so multiple instances are
+ *     possible (one handle per bus) and host mock testing is easy;
+ *     the inline mode (static inline port layer) lives in the inline branch.
  *
- * 返回码约定（LibDriver 风格）：
- *   - 0 成功（对 soft_iic_write_byte 表示从机应答 ACK）
- *   - 1 总线操作失败（NACK / 总线忙 / 总线恢复失败）
- *   - 2 参数无效（handle 或缓冲区为 NULL、长度非法）
- *   - 3 未初始化 / 引脚槽位为 NULL
- *   - 4 超时（时钟延展超时或总线被从机拉死）
+ * Return code convention (LibDriver style):
+ *   - 0 success (slave acknowledged, for soft_iic_write_byte)
+ *   - 1 bus operation failed (nack / bus busy / recovery failed)
+ *   - 2 invalid parameter (handle or buffer is null, bad length)
+ *   - 3 not inited / pin slot is null
+ *   - 4 timeout (clock stretching timeout or the bus is held low)
  *
- * 时序说明：IIC 只约束最小脉宽、没有最大周期约束，所以位周期只会被拉长、
- * 不会违规。所有半位周期统一由 handle->half_delay_us 派生（含 START/STOP
- * 的建立/保持时间），默认 4 us，48 MHz 下实际有效总线速率约 100 kHz。
+ * Timing note: iic only constrains the minimum pulse widths, so the bit period
+ * can only be stretched, never violated. Every half bit period (including the
+ * start / stop setup and hold times) is derived from handle->half_delay_us;
+ * the default is 4 us, giving an effective bus rate of about 100 kHz at
+ * 48 MHz.
  */
 
 #ifndef DRIVER_SOFT_IIC_H
@@ -50,12 +76,12 @@ extern "C" {
  * @{
  */
 
-#define SOFT_IIC_DEFAULT_HALF_DELAY_US (4U)      /**< 半位周期默认值（us），实际约 100 kHz */
-#define SOFT_IIC_DEFAULT_STRETCH_TIMEOUT_US (10000U) /**< 时钟延展等待超时默认值（us） */
-#define SOFT_IIC_DEFAULT_TRIALS (3U)             /**< 设备就绪探测默认次数 */
-#define SOFT_IIC_MAX_ADDRESS (0x7FU)             /**< 7 位从机地址上限 */
-#define SOFT_IIC_SCAN_ADDRESS_START (0x08U)      /**< 扫描起始地址（保留地址段之后） */
-#define SOFT_IIC_SCAN_ADDRESS_END (0x77U)        /**< 扫描结束地址（保留地址段之前） */
+#define SOFT_IIC_DEFAULT_HALF_DELAY_US (4U)           /**< default half bit period in us, about 100 kHz in practice */
+#define SOFT_IIC_DEFAULT_STRETCH_TIMEOUT_US (10000U)  /**< default clock stretching timeout in us */
+#define SOFT_IIC_DEFAULT_TRIALS (3U)                  /**< default device ready probe trials */
+#define SOFT_IIC_MAX_ADDRESS (0x7FU)                  /**< 7 bit slave address upper limit */
+#define SOFT_IIC_SCAN_ADDRESS_START (0x08U)           /**< scan start address, after the reserved range */
+#define SOFT_IIC_SCAN_ADDRESS_END (0x77U)             /**< scan end address, before the reserved range */
 
 /**
  * @brief soft iic byte acknowledge enumeration definition

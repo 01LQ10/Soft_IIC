@@ -1,32 +1,58 @@
 /**
+ * Copyright (c) 2026 LQ
+ *
+ * The MIT License (MIT)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
  * @file      driver_soft_iic.c
  * @brief     driver software iic source file
- * @version   1.0.0
+ * @version   1.1.0
  * @author    LQ
  * @date      2026-11-04
- * @license   MIT
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
  */
 
 #include "driver_soft_iic.h"
 
-/* ============================ 端口层（槽位模式） ============================
- * 本分支（interface）是槽位模式（SOFT_IIC_PORT_INLINE=0）专用版本：
- *   - 驱动正文只经下面 8 个宏访问硬件与日志，宏映射到 handle 的函数指针槽位；
- *   - 引脚初始化/反初始化走 BSP interface 层的 soft_iic_interface_init()/deinit()，
- *     平台实现文件为工程侧的 User/Src/driver_soft_iic_interface.c；
- *   - 支持多实例（每条总线一个 handle），可在 host 上用假引脚做单元测试；
- *   - 本文件（src/）里不出现任何 HAL / 寄存器 / 引脚符号。
+/* ============================ port layer (slot mode) ============================
+ * This branch (interface) is the slot mode (SOFT_IIC_PORT_INLINE=0) version:
+ *   - the driver body touches the hardware and the log only through the eight
+ *     macros below, which map to the handle function pointer slots;
+ *   - pin init / deinit go through the interface layer functions
+ *     soft_iic_interface_init() / deinit(), the platform implementation is the
+ *     project side file User/Src/driver_soft_iic_interface.c;
+ *   - multi instance (one handle per bus), unit testable on the host with
+ *     fake pins;
+ *   - no HAL / register / pin symbol appears in this file (src/).
  *
- * 内联模式（static inline 端口层）在本仓库的 inline 分支（共存基线在 main）。
+ * The inline mode (static inline port layer) lives in the inline branch of
+ * this repository (the coexistence baseline is in main).
  */
 #if defined(SOFT_IIC_PORT_INLINE) && (SOFT_IIC_PORT_INLINE != 0)
-#error "interface 分支只支持槽位模式（SOFT_IIC_PORT_INLINE=0）；内联模式在 inline 分支"
+#error "interface branch only supports slot mode (SOFT_IIC_PORT_INLINE=0); the inline mode lives in the inline branch"
 #endif
 
 #include "driver_soft_iic_interface.h"
@@ -39,8 +65,9 @@
 #define SOFT_IIC_PORT_PIN_INIT() (soft_iic_interface_init())
 #define SOFT_IIC_PORT_PIN_DEINIT() (soft_iic_interface_deinit())
 
-/* 错误日志统一走 handle 的 debug_print 槽位（不直接 printf），
- * 只使用字面量格式串，避免在 src/ 里引入 stdio 变参转发。 */
+/* Error logging goes through the handle debug_print slot (never a direct
+ * printf); only literal format strings are used to keep the stdio varargs
+ * forwarding out of src/. */
 #define SOFT_IIC_LOG(handle, text)                      \
     do                                                  \
     {                                                   \
@@ -144,7 +171,7 @@ static uint8_t a_soft_iic_bus_recover(soft_iic_handle_t *handle)
     SOFT_IIC_SCL_WRITE(handle, 1);
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
-        return 1;
+        return 1; /* return error */
     }
     a_soft_iic_half_delay(handle);
     SOFT_IIC_SDA_WRITE(handle, 1); /* stop condition */
@@ -176,7 +203,7 @@ static uint8_t a_soft_iic_write_bit(soft_iic_handle_t *handle, uint8_t bit)
     SOFT_IIC_SCL_WRITE(handle, 1);
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
-        return 4;
+        return 4; /* return error */
     }
     a_soft_iic_half_delay(handle); /* tHIGH */
 
@@ -201,7 +228,7 @@ static uint8_t a_soft_iic_read_bit(soft_iic_handle_t *handle, uint8_t *bit)
     SOFT_IIC_SCL_WRITE(handle, 1);
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
-        return 4;
+        return 4; /* return error */
     }
     *bit = SOFT_IIC_SDA_READ(handle);
     a_soft_iic_half_delay(handle); /* tHIGH */
@@ -247,11 +274,11 @@ uint8_t soft_iic_init(soft_iic_handle_t *handle)
         handle->stretch_timeout_us = SOFT_IIC_DEFAULT_STRETCH_TIMEOUT_US;
     }
 
-    /* 引脚层必须先于任何总线操作：interface 层先释放硬件 I2C1、配开漏引脚 */
+    /* the pin layer must come up before any bus operation */
     if (SOFT_IIC_PORT_PIN_INIT() != 0U)
     {
         SOFT_IIC_LOG(handle, "soft iic: pin init failed.\n");
-        return 1;
+        return 1; /* return error */
     }
 
     handle->inited = 1U;
@@ -263,7 +290,7 @@ uint8_t soft_iic_init(soft_iic_handle_t *handle)
             SOFT_IIC_LOG(handle, "soft iic: bus is stuck.\n");
             handle->inited = 0U; /* rollback */
 
-            return 1;
+            return 1; /* return error */
         }
     }
 
@@ -282,11 +309,11 @@ uint8_t soft_iic_deinit(soft_iic_handle_t *handle)
         return 3; /* not inited */
     }
 
-    SOFT_IIC_SDA_WRITE(handle, 1);
-    SOFT_IIC_SCL_WRITE(handle, 1);
-    handle->inited = 0U;
+    SOFT_IIC_SDA_WRITE(handle, 1); /* release sda */
+    SOFT_IIC_SCL_WRITE(handle, 1); /* release scl */
+    handle->inited = 0U;           /* flag close */
 
-    (void)SOFT_IIC_PORT_PIN_DEINIT();
+    (void)SOFT_IIC_PORT_PIN_DEINIT(); /* deinit the pin layer */
 
     return 0;
 }
@@ -298,7 +325,7 @@ uint8_t soft_iic_set_half_delay(soft_iic_handle_t *handle, uint16_t us)
         return 2; /* invalid parameter */
     }
 
-    handle->half_delay_us = us;
+    handle->half_delay_us = us; /* set half delay */
 
     return 0;
 }
@@ -320,7 +347,7 @@ uint8_t soft_iic_start(soft_iic_handle_t *handle)
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
         SOFT_IIC_LOG(handle, "soft iic: start failed, scl is held low.\n");
-        return 4;
+        return 4; /* return error */
     }
     if (SOFT_IIC_SDA_READ(handle) == 0U)
     {
@@ -357,7 +384,7 @@ uint8_t soft_iic_restart(soft_iic_handle_t *handle)
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
         SOFT_IIC_LOG(handle, "soft iic: restart failed, scl is held low.\n");
-        return 4;
+        return 4; /* return error */
     }
     a_soft_iic_half_delay(handle); /* tSU;STA */
     SOFT_IIC_SDA_WRITE(handle, 0);
@@ -395,7 +422,7 @@ uint8_t soft_iic_stop(soft_iic_handle_t *handle)
     {
         SOFT_IIC_LOG(handle, "soft iic: stop failed, scl is held low.\n");
 
-        return 4;
+        return 4; /* return error */
     }
 
     return 0;
@@ -424,7 +451,7 @@ uint8_t soft_iic_write_byte(soft_iic_handle_t *handle, uint8_t data)
         {
             SOFT_IIC_LOG(handle, "soft iic: write byte failed.\n");
 
-            return 4;
+            return 4; /* return error */
         }
         data = (uint8_t)(data << 1);
     }
@@ -439,7 +466,7 @@ uint8_t soft_iic_write_byte(soft_iic_handle_t *handle, uint8_t data)
     }
     if (ack != 0U)
     {
-        return SOFT_IIC_NACK;
+        return SOFT_IIC_NACK; /* nack */
     }
 
     return SOFT_IIC_ACK;
@@ -469,7 +496,7 @@ uint8_t soft_iic_read_byte(soft_iic_handle_t *handle, uint8_t ack, uint8_t *data
         {
             SOFT_IIC_LOG(handle, "soft iic: read byte failed.\n");
 
-            return 4;
+            return 4; /* return error */
         }
         value = (uint8_t)((value << 1) | bit);
     }
@@ -529,13 +556,13 @@ uint8_t soft_iic_write(soft_iic_handle_t *handle, uint8_t addr, uint8_t *buf, ui
         a_soft_iic_abort(handle);
         SOFT_IIC_LOG(handle, "soft iic: write failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
     if (soft_iic_stop(handle) != 0U)
     {
         SOFT_IIC_LOG(handle, "soft iic: write failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
 
     return 0;
@@ -581,13 +608,13 @@ uint8_t soft_iic_read(soft_iic_handle_t *handle, uint8_t addr, uint8_t *buf, uin
         a_soft_iic_abort(handle);
         SOFT_IIC_LOG(handle, "soft iic: read failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
     if (soft_iic_stop(handle) != 0U)
     {
         SOFT_IIC_LOG(handle, "soft iic: read failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
 
     return 0;
@@ -633,13 +660,13 @@ uint8_t soft_iic_write_reg(soft_iic_handle_t *handle, uint8_t addr, uint8_t reg,
         a_soft_iic_abort(handle);
         SOFT_IIC_LOG(handle, "soft iic: write register failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
     if (soft_iic_stop(handle) != 0U)
     {
         SOFT_IIC_LOG(handle, "soft iic: write register failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
 
     return 0;
@@ -697,13 +724,13 @@ uint8_t soft_iic_read_reg(soft_iic_handle_t *handle, uint8_t addr, uint8_t reg, 
         a_soft_iic_abort(handle);
         SOFT_IIC_LOG(handle, "soft iic: read register failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
     if (soft_iic_stop(handle) != 0U)
     {
         SOFT_IIC_LOG(handle, "soft iic: read register failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
 
     return 0;
@@ -742,7 +769,7 @@ uint8_t soft_iic_is_device_ready(soft_iic_handle_t *handle, uint8_t addr, uint8_
         }
     }
 
-    return 1;
+    return 1; /* no device found */
 }
 
 uint8_t soft_iic_bus_recover(soft_iic_handle_t *handle)
@@ -761,7 +788,7 @@ uint8_t soft_iic_bus_recover(soft_iic_handle_t *handle)
     {
         SOFT_IIC_LOG(handle, "soft iic: bus recover failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
 
     return 0;
@@ -809,7 +836,7 @@ uint8_t soft_iic_info(soft_iic_info_t *info)
     }
 
     memset(info, 0, sizeof(soft_iic_info_t));
-    (void)strncpy(info->chip_name, "soft iic", sizeof(info->chip_name) - 1U);
+    (void)strncpy(info->chip_name, "soft iic", sizeof(info->chip_name) - 1U); /* set chip name */
     (void)strncpy(info->manufacturer_name, "LQ", sizeof(info->manufacturer_name) - 1U);
     (void)strncpy(info->interface, "GPIO", sizeof(info->interface) - 1U);
 

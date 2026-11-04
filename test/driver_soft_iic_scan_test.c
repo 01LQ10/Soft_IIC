@@ -1,14 +1,36 @@
 /**
+ * Copyright (c) 2026 LQ
+ *
+ * The MIT License (MIT)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
  * @file      driver_soft_iic_scan_test.c
  * @brief     driver software iic scan test source file
- * @version   1.0.0
+ * @version   1.1.0
  * @author    LQ
  * @date      2026-11-04
- * @license   MIT
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
  */
@@ -32,21 +54,23 @@ uint8_t soft_iic_scan_test(void)
 
     soft_iic_interface_debug_print("soft iic: scan test start.\n");
 
+    /* init the basic example */
     res = soft_iic_basic_init();
     if (res != 0U)
     {
         soft_iic_interface_debug_print("soft iic: scan test init failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
 
+    /* scan the bus */
     res = soft_iic_basic_scan(addr_list, &count);
     if (res != 0U)
     {
         soft_iic_interface_debug_print("soft iic: scan test scan failed.\n");
         (void)soft_iic_basic_deinit();
 
-        return 1;
+        return 1; /* return error */
     }
 
     soft_iic_interface_debug_print("soft iic: %u device(s) found.\n", (unsigned int)count);
@@ -56,12 +80,13 @@ uint8_t soft_iic_scan_test(void)
                                        (unsigned int)addr_list[i]);
     }
 
+    /* deinit the basic example */
     res = soft_iic_basic_deinit();
     if (res != 0U)
     {
         soft_iic_interface_debug_print("soft iic: scan test deinit failed.\n");
 
-        return 1;
+        return 1; /* return error */
     }
     soft_iic_interface_debug_print("soft iic: scan test stop.\n");
 
