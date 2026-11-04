@@ -15,24 +15,17 @@
 
 #include "driver_soft_iic_basic.h"
 
-/* 日志出口按端口模式二选一（内联模式下没有 interface 层的符号）：
- *   槽位模式 -> 引脚层的 soft_iic_interface_debug_print()（printf -> USART1）
- *   内联模式 -> 端口头的 SOFT_IIC_PORT_LOG()（同样是 printf -> USART1）
- * 换模式时用户只需要提供/替换对应的那一个文件。
+/* 本分支（inline）是内联模式专用版本：日志出口走端口头的
+ * SOFT_IIC_PORT_LOG()（static inline，转发到平台 printf -> USART1）。
+ * 槽位模式（soft_iic_interface_debug_print、handle 函数指针槽位）在 interface 分支。
  */
-#if SOFT_IIC_PORT_INLINE
+#ifndef SOFT_IIC_PORT_HEADER
+#error "inline 分支需要 -DSOFT_IIC_PORT_HEADER=<平台端口头>"
+#endif
 
 #include SOFT_IIC_PORT_HEADER
 
 #define SOFT_IIC_BASIC_LOG(...) SOFT_IIC_PORT_LOG(__VA_ARGS__)
-
-#else /* SOFT_IIC_PORT_INLINE == 0 */
-
-#include "driver_soft_iic_interface.h"
-
-#define SOFT_IIC_BASIC_LOG(...) soft_iic_interface_debug_print(__VA_ARGS__)
-
-#endif /* SOFT_IIC_PORT_INLINE */
 
 static soft_iic_handle_t gs_handle; /**< soft iic handle */
 
@@ -43,15 +36,8 @@ static soft_iic_handle_t gs_handle; /**< soft iic handle */
 
 uint8_t soft_iic_basic_init(void)
 {
-#if !SOFT_IIC_PORT_INLINE
-    if (soft_iic_interface_link(&gs_handle) != 0U)
-    {
-        return 1; /* link failed */
-    }
-#endif
-
     /* 引脚层由 soft_iic_init() 内部的 SOFT_IIC_PORT_PIN_INIT() 负责，
-     * 两种模式流程一致：这里只管链接(槽位模式) + 启动总线 */
+     * 这里只管启动总线 */
     if (soft_iic_init(&gs_handle) != 0U)
     {
         SOFT_IIC_BASIC_LOG("soft iic: basic init failed.\n");

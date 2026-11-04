@@ -15,12 +15,11 @@
  * 平台无关的软件（位拨）IIC 主机驱动：
  *   - 只做 7 位地址主机模式，支持 START / 重复 START / STOP、ACK 判定、
  *     从机时钟延展等待与超时、9 时钟总线恢复；
- *   - 引脚访问全部经 handle 的函数指针槽位（LibDriver 注入模式），
- *     本文件（src/）不出现任何 HAL / 平台头；
- *   - 端口层（8 个宏）在 driver_soft_iic.c 顶部，编译期二选一：
- *     槽位模式（SOFT_IIC_PORT_INLINE=0，默认，多实例、可 mock）或
- *     内联模式（=1，由 -DSOFT_IIC_PORT_HEADER=<平台头> 提供 static inline 实现，
- *     零间接调用、单实例）。
+ *   - 本分支（inline）是内联模式专用版本：引脚访问全部经端口层 8 个宏，
+ *     端口层由 -DSOFT_IIC_PORT_HEADER=<平台头> 提供，static inline 直写寄存器
+ *     （零间接调用），单实例（引脚编译期固定），
+ *     本文件（src/）不出现任何 HAL / 寄存器 / 引脚符号；
+ *   - 槽位模式（handle 函数指针槽位、LibDriver 注入模式、多实例、可 mock）在 interface 分支。
  *
  * 返回码约定（LibDriver 风格）：
  *   - 0 成功（对 soft_iic_write_byte 表示从机应答 ACK）

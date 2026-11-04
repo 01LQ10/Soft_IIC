@@ -15,26 +15,19 @@
 
 #include "driver_soft_iic.h"
 
-/* ============================ 端口层 ============================
- * 驱动正文只经下面 8 个宏访问硬件与日志，编译期二选一
- * （开关 SOFT_IIC_PORT_INLINE，由命令行 -D 传入）：
- *
- *   SOFT_IIC_PORT_INLINE=0（默认，槽位模式）
- *     宏映射到 handle 的函数指针槽位；引脚初始化/反初始化走 BSP interface
- *     层的 soft_iic_interface_init()/deinit()，平台实现文件为工程侧的
- *     User/Src/driver_soft_iic_interface.c。支持多实例（每条总线一个 handle），
- *     可在 host 上用假引脚做单元测试。
- *
- *   SOFT_IIC_PORT_INLINE=1（内联模式）
- *     整个端口层由 -DSOFT_IIC_PORT_HEADER=<平台头> 提供，平台头用
- *     static inline 直写寄存器（零间接调用），单实例（引脚编译期固定）。
- *     契约见 interface/driver_soft_iic_port_template.h，本仓库实现为
- *     User/Inc/driver_soft_iic_port_py32.h。
- *
- * 两种模式互不依赖，换模式或换平台都只需要提供/替换一个文件；
+/* ============================ 端口层（内联模式专用） ============================
+ * 本分支（inline）是内联模式专用版本：整个端口层由
+ * -DSOFT_IIC_PORT_HEADER=<平台头> 提供，平台头用 static inline 直写寄存器
+ * （零间接调用），单实例（引脚编译期固定）。契约见
+ * interface/driver_soft_iic_port_template.h，本仓库实现为
+ * User/Inc/driver_soft_iic_port_py32.h。
+ * 槽位模式（handle 函数指针槽位、多实例、可 mock）在 interface 分支；
+ * 本分支换平台只需要替换端口头这一个文件。
  * 本文件（src/）里不出现任何 HAL / 寄存器 / 引脚符号。
  */
-#if SOFT_IIC_PORT_INLINE
+#if !defined(SOFT_IIC_PORT_INLINE) || (SOFT_IIC_PORT_INLINE == 0)
+#error "inline 分支只支持内联模式（SOFT_IIC_PORT_INLINE=1）；槽位模式在 interface 分支"
+#endif
 
 #ifndef SOFT_IIC_PORT_HEADER
 #error "SOFT_IIC_PORT_INLINE=1 时必须提供 -DSOFT_IIC_PORT_HEADER=<平台端口头>"
@@ -44,31 +37,6 @@
 
 /* 内联模式没有 handle 日志槽位，日志出口由端口头提供 */
 #define SOFT_IIC_LOG(handle, text) SOFT_IIC_PORT_LOG(text)
-
-#else /* SOFT_IIC_PORT_INLINE == 0 */
-
-#include "driver_soft_iic_interface.h"
-
-#define SOFT_IIC_SCL_WRITE(handle, level) ((handle)->scl_write((uint8_t)(level)))
-#define SOFT_IIC_SDA_WRITE(handle, level) ((handle)->sda_write((uint8_t)(level)))
-#define SOFT_IIC_SCL_READ(handle) ((handle)->scl_read())
-#define SOFT_IIC_SDA_READ(handle) ((handle)->sda_read())
-#define SOFT_IIC_DELAY_US(handle, us) ((handle)->delay_us((uint32_t)(us)))
-#define SOFT_IIC_PORT_PIN_INIT() (soft_iic_interface_init())
-#define SOFT_IIC_PORT_PIN_DEINIT() (soft_iic_interface_deinit())
-
-/* 错误日志统一走 handle 的 debug_print 槽位（不直接 printf），
- * 只使用字面量格式串，避免在 src/ 里引入 stdio 变参转发。 */
-#define SOFT_IIC_LOG(handle, text)                      \
-    do                                                  \
-    {                                                   \
-        if (((handle) != NULL) && ((handle)->debug_print != NULL)) \
-        {                                               \
-            (handle)->debug_print(text);                \
-        }                                               \
-    } while (0)
-
-#endif /* SOFT_IIC_PORT_INLINE */
 
 /**
  * @defgroup soft_iic_driver soft iic driver function
@@ -251,15 +219,6 @@ uint8_t soft_iic_init(soft_iic_handle_t *handle)
     {
         return 2; /* invalid handle */
     }
-#if !SOFT_IIC_PORT_INLINE
-    if ((handle->scl_write == NULL) || (handle->sda_write == NULL) ||
-        (handle->scl_read == NULL) || (handle->sda_read == NULL) ||
-        (handle->delay_us == NULL))
-    {
-        SOFT_IIC_LOG(handle, "soft iic: pin slot is null.\n");
-        return 3; /* slot is null */
-    }
-#endif
     if (handle->half_delay_us == 0U)
     {
         handle->half_delay_us = SOFT_IIC_DEFAULT_HALF_DELAY_US;
@@ -269,8 +228,7 @@ uint8_t soft_iic_init(soft_iic_handle_t *handle)
         handle->stretch_timeout_us = SOFT_IIC_DEFAULT_STRETCH_TIMEOUT_US;
     }
 
-    /* 引脚层必须先于任何总线操作：槽位模式下是 interface 层的引脚配置，
-     * 内联模式下是端口头的 pin_init（把引脚从硬件外设手里拿回来并放开漏） */
+    /* 引脚层必须先于任何总线操作：端口头的 pin_init 把引脚从硬件外设手里拿回来并放开漏 */
     if (SOFT_IIC_PORT_PIN_INIT() != 0U)
     {
         SOFT_IIC_LOG(handle, "soft iic: pin init failed.\n");

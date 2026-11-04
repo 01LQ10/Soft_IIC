@@ -9,36 +9,32 @@
 
 ```
 BSP/SOFT_IIC/
-├── src/driver_soft_iic.c              # 协议状态机 + 顶部端口层路由（零 HAL 符号）
+├── src/driver_soft_iic.c              # 协议状态机 + 顶部端口层（内联专用，零 HAL 符号）
 ├── src/driver_soft_iic.h              # handle / 返回码 / API
-├── interface/driver_soft_iic_interface.h          # 槽位模式的引脚层声明（纯声明）
-├── interface/driver_soft_iic_interface_template.c # 槽位模式移植模板（不参与编译）
 ├── interface/driver_soft_iic_port_template.h      # 内联模式端口契约模板（不参与编译）
 ├── example/driver_soft_iic_basic.c/.h             # init / scan / probe / dump
 ├── test/driver_soft_iic_scan_test.c               # 真机扫描测试，默认 OFF
 └── CMakeLists.txt                                 # SOFT_IIC::SOFT_IIC
 ```
 
-两种端口模式各一个平台文件，**换模式或换平台都只写一个文件**：
-`User/Src/driver_soft_iic_interface.c`（槽位模式，默认）或
-`User/Inc/driver_soft_iic_port_py32.h`（内联模式）。
+本分支（inline）是内联模式专用版本，平台文件只有一个：
+`User/Inc/driver_soft_iic_port_py32.h`（static inline 端口层；槽位模式的平台文件
+`User/Src/driver_soft_iic_interface.c` 在 interface 分支）。**换平台只需要替换这一个端口头。**
 
 ## 2. 分层与 LibDriver 规范
 
 | 层 | 文件 | 允许依赖 |
 |---|---|---|
 | 驱动 | `src/` | 只有 `stdint.h` / `string.h` / 自身头 / 下方端口层 |
-| 端口层（路由） | `src/driver_soft_iic.c` 顶部 | 只做宏映射，两种模式二选一 |
-| 接口（槽位模式） | `interface/*.h` | 纯声明 |
-| 平台实现（槽位模式） | 工程侧 `driver_soft_iic_interface.c` | HAL / 平台头 |
-| 平台实现（内联模式） | 工程侧 `driver_soft_iic_port_py32.h` | 自己 include 的平台头，**自包含** |
+| 端口层 | `src/driver_soft_iic.c` 顶部 | `#include SOFT_IIC_PORT_HEADER`（内联专用） |
+| 端口契约模板 | `interface/driver_soft_iic_port_template.h` | 不参与编译 |
+| 平台实现 | 工程侧 `driver_soft_iic_port_py32.h` | 自己 include 的平台头，**自包含** |
 
-- `src/` 里 `grep -iE "HAL_|stm32|GPIO"` 为空；内联模式靠 `#include SOFT_IIC_PORT_HEADER`
-  一行把平台头引进来，驱动正文两种模式文本完全一致。
-- 槽位模式：引脚访问走 handle 的函数指针槽位，**多实例**（每条总线一个 handle）、
-  **可 mock**（host 单元测试直接给假引脚函数）。
-- 内联模式：引脚访问是 `static inline` 直写 `BSRR`/`BRR`/`IDR`，**零间接调用**，
+- `src/` 里 `grep -iE "HAL_|stm32|GPIO"` 为空；端口层靠 `#include SOFT_IIC_PORT_HEADER`
+  一行把平台头引进来。
+- 引脚访问是 `static inline` 直写 `BSRR`/`BRR`/`IDR`，**零间接调用**，
   但**单实例**（引脚编译期固定）。
+- 槽位模式（handle 函数指针槽位、**多实例**、**可 mock**）在 interface 分支。
 
 ### 端口契约（8 项）
 
@@ -50,10 +46,9 @@ SOFT_IIC_DELAY_US(handle, us)     SOFT_IIC_PORT_LOG(fmt, ...)   ← 变参
 ```
 
 `PIN_INIT`/`PIN_DEINIT` 由 `soft_iic_init()`/`soft_iic_deinit()` 自动调用，
-两种模式流程一致（槽位模式下它们展开成 `soft_iic_interface_init()/deinit()`）。
 所以调用方（`example/`、业务接口层）不需要再碰引脚层。
 
-### 切换到内联模式
+### 本分支构建与槽位模式
 
 ```cmake
 cmake --preset py32f030f28u6 -B build_inline -DPIXPILL_SOFT_IIC_PORT_INLINE=ON
@@ -63,14 +58,14 @@ cmake --build build_inline
 CMake 会给 `soft_iic` 目标加 `SOFT_IIC_PORT_INLINE=1` +
 `SOFT_IIC_PORT_HEADER="driver_soft_iic_port_py32.h"`（PUBLIC，所以一起编译的
 `User/Src/*.c` 也看到同一开关），并补上 `User/Inc` 与 HAL/CMSIS 的 include 路径。
-`User/Src/driver_soft_iic_interface.c` 整个文件被 `#if !SOFT_IIC_PORT_INLINE` 包住，
-两种模式源文件列表完全一样，A/B 只换 `-D`。
+本分支用默认选项（OFF）构建会直接 `#error` 编译失败（fail-fast，防误用槽位模式）：
+`inline 分支只支持内联模式（SOFT_IIC_PORT_INLINE=1）；槽位模式在 interface 分支`。
 
-内联模式下 `nm pixpill.elf | grep soft_iic_interface_` 应为空（已用此验证该 .c 未链接），
+内联模式下 `nm pixpill.elf | grep soft_iic_interface_` 应为空（已用此验证槽位 .c 未链接），
 且 `soft_iic_write_byte` 里没有 `blx r` 间接调用（槽位模式有 10 处）。
 
-换平台时的模板：槽位模式抄 `interface/driver_soft_iic_interface_template.c`，
-内联模式抄 `interface/driver_soft_iic_port_template.h`。
+槽位模式（函数指针槽位、多实例、可 mock）在 interface 分支；
+本分支换平台时抄 `interface/driver_soft_iic_port_template.h`。
 
 ## 3. 时序
 
@@ -148,17 +143,17 @@ soft_iic_basic_deinit();
 
 ## 6. 平台实现要点（PY32F030）
 
-1. **先释放硬件 I2C1**：引脚层（槽位模式 `soft_iic_interface_init()` / 内联模式
-   `soft_iic_port_pin_init()`）里 `HAL_I2C_DeInit(&hi2c1)` 再关 I2C 时钟，然后把
-   PA2/PA3 配成 `GPIO_MODE_OUTPUT_OD`。否则外设仍占用引脚。
+1. **先释放硬件 I2C1**：引脚层 `soft_iic_port_pin_init()`（端口头）里
+   `HAL_I2C_DeInit(&hi2c1)` 再关 I2C 时钟，然后把 PA2/PA3 配成
+   `GPIO_MODE_OUTPUT_OD`。否则外设仍占用引脚。
 2. **开漏写 1 = 释放**：高电平由外部 4.7K 上拉提供；写 0 才真正拉低。
 3. **IDR 回读**：开漏输出模式下 `IDR` 必须反映引脚真实电平，ACK 判定与时钟
    延展检测都依赖这一点。上板用扫描验证：能收到 0x18 的 ACK 即成立（本板实测唯一命中地址）。
 4. **微秒延时**：轮询 `SysTick->VAL`（1 ms 重装 @48 MHz，20.83 ns 分辨率），
    与优化等级无关；不要用 `for()` 空循环凑时间。**每微秒的计数值只算一次**
    （见 §3 的除法教训），热路径里任何 `SystemCoreClock / 1e6` 都是 bug。
-   两种模式各有一份实现（槽位模式在 `.c`，内联模式在端口头里用函数内 static 懒校准），
-   **改动请同步**，否则两个模式的时间基准会不一致。
+   实现是端口头的 `soft_iic_port_delay_us()`（函数内 static 懒校准）；槽位模式在
+   interface 分支有同名副本，**跨分支改动请同步**，否则两个模式的时间基准会不一致。
 5. **内联模式的延时函数刻意不内联**（`noinline`）：轮询循环约 100 字节，每位要调
    3–4 次，内联进每个调用点会让固件从 26500 B 膨胀到 31528 B；保持一次直调用后
    内联模式反而比槽位模式小 268 B（26232 B，因为引脚层函数与间接调用都没了）。
@@ -167,14 +162,7 @@ soft_iic_basic_deinit();
 
 ## 7. 验证
 
-- 离线（槽位模式，默认）：
-  ```
-  cc -std=c99 -Wall -Wextra test/soft_iic_host_test.c BSP/SOFT_IIC/src/driver_soft_iic.c \
-     -I BSP/SOFT_IIC/src -I BSP/SOFT_IIC/interface -o test/soft_iic_host_test && ./test/soft_iic_host_test
-  ```
-  `-I .../interface` 是必须的：驱动顶部现在直接 include 槽位模式的接口声明。
-  用开漏“线与”模型 + 假 SC7A20H 从机做协议级单元测试，exit 0 = pass。
-- 离线（内联模式）：同一份测试换端口层跑一遍，两份都通过：
+- 离线（本分支，内联模式）：
   ```
   cc -std=c99 -Wall -Wextra -DSOFT_IIC_PORT_INLINE=1 \
      -DSOFT_IIC_PORT_HEADER='"soft_iic_port_sim_inline.h"' \
@@ -182,6 +170,8 @@ soft_iic_basic_deinit();
      -I BSP/SOFT_IIC/src -I test -o test/soft_iic_host_test_inline && ./test/soft_iic_host_test_inline
   ```
   （PowerShell 里 `-D...=\"...\"` 的引号要写成 `'...=\"...\"'`，否则会被 shell 吃掉。）
+  用开漏“线与”模型 + 假 SC7A20H 从机做协议级单元测试，exit 0 = pass；
+  槽位模式的测试版本在 interface 分支。
 - 上板（2026-11-04 实测通过）：`main.c` 先扫描（本板唯一命中 **0x18**，SDO 接地），
   再由 `APP_Sc7a20hOpen()` 锁定地址，走 SC7A20H 驱动读三轴（20 帧 @100 Hz 正常变化）、
   500 次 6 字节读测速、10 s soak（100/100 成功）。

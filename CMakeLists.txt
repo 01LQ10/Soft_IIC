@@ -13,8 +13,8 @@ option(SOFT_IIC_BUILD_TEST "Build test source code" OFF)
 option(SOFT_IIC_BUILD_EXAMPLE "Build example source code" ON)
 
 # ===================== 核心静态库目标 =====================
-# src/ 平台无关（零 HAL 符号）；平台实现由工程侧提供
-# （本仓库为 User/Src/driver_soft_iic_interface.c）。
+# src/ 平台无关（零 HAL 符号）；端口层由 -DSOFT_IIC_PORT_HEADER=<平台头> 提供
+# （本仓库为 User/Inc/driver_soft_iic_port_py32.h，内联模式专用）。
 add_library(soft_iic STATIC
     src/driver_soft_iic.c
 )
