@@ -17,10 +17,10 @@
  *     从机时钟延展等待与超时、9 时钟总线恢复；
  *   - 引脚访问全部经 handle 的函数指针槽位（LibDriver 注入模式），
  *     本文件（src/）不出现任何 HAL / 平台头；
- *   - 端口层（8 个宏）在 driver_soft_iic.c 顶部，编译期二选一：
- *     槽位模式（SOFT_IIC_PORT_INLINE=0，默认，多实例、可 mock）或
- *     内联模式（=1，由 -DSOFT_IIC_PORT_HEADER=<平台头> 提供 static inline 实现，
- *     零间接调用、单实例）。
+ *   - 本分支（interface）是槽位模式专用版本（SOFT_IIC_PORT_INLINE=0），
+ *     端口层宏在 driver_soft_iic.c 顶部映射到 handle 槽位，
+ *     支持多实例（每条总线一个 handle）、可在 host 上 mock；
+ *     内联模式（static inline 端口层）在 inline 分支。
  *
  * 返回码约定（LibDriver 风格）：
  *   - 0 成功（对 soft_iic_write_byte 表示从机应答 ACK）
