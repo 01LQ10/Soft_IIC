@@ -23,13 +23,15 @@
  *
  * @file      driver_soft_iic.c
  * @brief     driver software iic source file
- * @version   1.1.0
+ * @version   1.3.0
  * @author    LQ
  * @date      2026-11-04
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>1.3.0    <td>LQ      <td>use handle slots directly, drop interface include
+ * <tr><td>2026/11/04  <td>1.2.0    <td>LQ      <td>remove inline branch guard, fix init order
  * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
@@ -37,45 +39,14 @@
 
 #include "driver_soft_iic.h"
 
-/* ============================ port layer (slot mode) ============================
- * This branch (interface) is the slot mode (SOFT_IIC_PORT_INLINE=0) version:
- *   - the driver body touches the hardware and the log only through the eight
- *     macros below, which map to the handle function pointer slots;
- *   - pin init / deinit go through the interface layer functions
- *     soft_iic_interface_init() / deinit(), the platform implementation is the
- *     project side file User/Src/driver_soft_iic_interface.c;
- *   - multi instance (one handle per bus), unit testable on the host with
- *     fake pins;
- *   - no HAL / register / pin symbol appears in this file (src/).
- *
- * The inline mode (static inline port layer) lives in the inline branch of
- * this repository (the coexistence baseline is in main).
+/* port layer
+ * every hardware access goes through the handle function pointer slots
+ * (LibDriver injection style); the pin init / deinit hooks are slots too,
+ * they are bound by the caller with the DRIVER_SOFT_IIC_LINK_* macros; this file does
+ * not include any interface header, multi instance (one handle per bus) and
+ * host mock testing with fake pins are both possible; no HAL / register /
+ * pin symbol appears in this file (src/).
  */
-#if defined(SOFT_IIC_PORT_INLINE) && (SOFT_IIC_PORT_INLINE != 0)
-#error "interface branch only supports slot mode (SOFT_IIC_PORT_INLINE=0); the inline mode lives in the inline branch"
-#endif
-
-#include "driver_soft_iic_interface.h"
-
-#define SOFT_IIC_SCL_WRITE(handle, level) ((handle)->scl_write((uint8_t)(level)))
-#define SOFT_IIC_SDA_WRITE(handle, level) ((handle)->sda_write((uint8_t)(level)))
-#define SOFT_IIC_SCL_READ(handle) ((handle)->scl_read())
-#define SOFT_IIC_SDA_READ(handle) ((handle)->sda_read())
-#define SOFT_IIC_DELAY_US(handle, us) ((handle)->delay_us((uint32_t)(us)))
-#define SOFT_IIC_PORT_PIN_INIT() (soft_iic_interface_init())
-#define SOFT_IIC_PORT_PIN_DEINIT() (soft_iic_interface_deinit())
-
-/* Error logging goes through the handle debug_print slot (never a direct
- * printf); only literal format strings are used to keep the stdio varargs
- * forwarding out of src/. */
-#define SOFT_IIC_LOG(handle, text)                      \
-    do                                                  \
-    {                                                   \
-        if (((handle) != NULL) && ((handle)->debug_print != NULL)) \
-        {                                               \
-            (handle)->debug_print(text);                \
-        }                                               \
-    } while (0)
 
 /**
  * @defgroup soft_iic_driver soft iic driver function
@@ -91,7 +62,7 @@
  */
 static void a_soft_iic_half_delay(soft_iic_handle_t *handle)
 {
-    SOFT_IIC_DELAY_US(handle, handle->half_delay_us);
+    handle->delay_us(handle->half_delay_us);
 }
 
 /**
@@ -106,13 +77,13 @@ static uint8_t a_soft_iic_wait_scl_high(soft_iic_handle_t *handle)
 {
     uint16_t waited = 0U;
 
-    while (SOFT_IIC_SCL_READ(handle) == 0U)
+    while (handle->scl_read() == 0U)
     {
         if (waited >= handle->stretch_timeout_us)
         {
             return 4; /* clock stretching timeout */
         }
-        SOFT_IIC_DELAY_US(handle, 1U);
+        handle->delay_us(1U);
         waited++;
     }
 
@@ -129,11 +100,11 @@ static uint8_t a_soft_iic_wait_scl_high(soft_iic_handle_t *handle)
  */
 static uint8_t a_soft_iic_release_bus(soft_iic_handle_t *handle)
 {
-    SOFT_IIC_SDA_WRITE(handle, 1);
-    SOFT_IIC_SCL_WRITE(handle, 1);
+    handle->sda_write(1);
+    handle->scl_write(1);
     a_soft_iic_half_delay(handle);
 
-    if ((SOFT_IIC_SCL_READ(handle) == 0U) || (SOFT_IIC_SDA_READ(handle) == 0U))
+    if ((handle->scl_read() == 0U) || (handle->sda_read() == 0U))
     {
         return 1; /* bus is not idle */
     }
@@ -153,31 +124,31 @@ static uint8_t a_soft_iic_bus_recover(soft_iic_handle_t *handle)
 {
     uint8_t i;
 
-    SOFT_IIC_SDA_WRITE(handle, 1); /* release sda, the slave decides */
+    handle->sda_write(1); /* release sda, the slave decides */
 
     for (i = 0U; i < 9U; i++)
     {
-        SOFT_IIC_SCL_WRITE(handle, 0);
+        handle->scl_write(0);
         a_soft_iic_half_delay(handle);
-        SOFT_IIC_SCL_WRITE(handle, 1);
+        handle->scl_write(1);
         a_soft_iic_half_delay(handle);
     }
 
     /* finish with a stop condition so the slave state machine is reset */
-    SOFT_IIC_SCL_WRITE(handle, 0);
+    handle->scl_write(0);
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SDA_WRITE(handle, 0);
+    handle->sda_write(0);
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SCL_WRITE(handle, 1);
+    handle->scl_write(1);
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
         return 1; /* return error */
     }
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SDA_WRITE(handle, 1); /* stop condition */
+    handle->sda_write(1); /* stop condition */
     a_soft_iic_half_delay(handle);
 
-    if ((SOFT_IIC_SCL_READ(handle) == 0U) || (SOFT_IIC_SDA_READ(handle) == 0U))
+    if ((handle->scl_read() == 0U) || (handle->sda_read() == 0U))
     {
         return 1; /* still stuck */
     }
@@ -196,11 +167,11 @@ static uint8_t a_soft_iic_bus_recover(soft_iic_handle_t *handle)
  */
 static uint8_t a_soft_iic_write_bit(soft_iic_handle_t *handle, uint8_t bit)
 {
-    SOFT_IIC_SCL_WRITE(handle, 0);
+    handle->scl_write(0);
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SDA_WRITE(handle, (bit != 0U) ? 1U : 0U);
+    handle->sda_write((bit != 0U) ? 1U : 0U);
     a_soft_iic_half_delay(handle); /* tSU;DAT */
-    SOFT_IIC_SCL_WRITE(handle, 1);
+    handle->scl_write(1);
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
         return 4; /* return error */
@@ -221,16 +192,16 @@ static uint8_t a_soft_iic_write_bit(soft_iic_handle_t *handle, uint8_t bit)
  */
 static uint8_t a_soft_iic_read_bit(soft_iic_handle_t *handle, uint8_t *bit)
 {
-    SOFT_IIC_SCL_WRITE(handle, 0);
+    handle->scl_write(0);
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SDA_WRITE(handle, 1); /* release sda to the slave */
+    handle->sda_write(1); /* release sda to the slave */
     a_soft_iic_half_delay(handle); /* tSU;DAT */
-    SOFT_IIC_SCL_WRITE(handle, 1);
+    handle->scl_write(1);
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
         return 4; /* return error */
     }
-    *bit = SOFT_IIC_SDA_READ(handle);
+    *bit = handle->sda_read();
     a_soft_iic_half_delay(handle); /* tHIGH */
 
     return 0;
@@ -258,11 +229,16 @@ uint8_t soft_iic_init(soft_iic_handle_t *handle)
     {
         return 2; /* invalid handle */
     }
-    if ((handle->scl_write == NULL) || (handle->sda_write == NULL) ||
+    if (handle->debug_print == NULL)
+    {
+        return 3; /* the log slot must be valid before a slot error is reported */
+    }
+    if ((handle->pin_init == NULL) || (handle->pin_deinit == NULL) ||
+        (handle->scl_write == NULL) || (handle->sda_write == NULL) ||
         (handle->scl_read == NULL) || (handle->sda_read == NULL) ||
         (handle->delay_us == NULL))
     {
-        SOFT_IIC_LOG(handle, "soft iic: pin slot is null.\n");
+        handle->debug_print("soft iic: pin slot is null.\n"); /* pin slot is null */
         return 3; /* slot is null */
     }
     if (handle->half_delay_us == 0U)
@@ -275,24 +251,24 @@ uint8_t soft_iic_init(soft_iic_handle_t *handle)
     }
 
     /* the pin layer must come up before any bus operation */
-    if (SOFT_IIC_PORT_PIN_INIT() != 0U)
+    if (handle->pin_init() != 0)
     {
-        SOFT_IIC_LOG(handle, "soft iic: pin init failed.\n");
+        handle->debug_print("soft iic: pin init failed.\n"); /* pin init failed */
         return 1; /* return error */
     }
-
-    handle->inited = 1U;
 
     if (a_soft_iic_release_bus(handle) != 0U)
     {
         if (a_soft_iic_bus_recover(handle) != 0U)
         {
-            SOFT_IIC_LOG(handle, "soft iic: bus is stuck.\n");
-            handle->inited = 0U; /* rollback */
+            handle->debug_print("soft iic: bus is stuck.\n"); /* bus is stuck */
+            (void)handle->pin_deinit(); /* rollback pin layer */
 
             return 1; /* return error */
         }
     }
+
+    handle->inited = 1U; /* flag finish */
 
     return 0;
 }
@@ -305,15 +281,15 @@ uint8_t soft_iic_deinit(soft_iic_handle_t *handle)
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
-    SOFT_IIC_SDA_WRITE(handle, 1); /* release sda */
-    SOFT_IIC_SCL_WRITE(handle, 1); /* release scl */
-    handle->inited = 0U;           /* flag close */
+    handle->sda_write(1); /* release sda */
+    handle->scl_write(1); /* release scl */
 
-    (void)SOFT_IIC_PORT_PIN_DEINIT(); /* deinit the pin layer */
+    (void)handle->pin_deinit(); /* deinit the pin layer */
+
+    handle->inited = 0U; /* flag close */
 
     return 0;
 }
@@ -338,26 +314,25 @@ uint8_t soft_iic_start(soft_iic_handle_t *handle)
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
-    SOFT_IIC_SDA_WRITE(handle, 1);
-    SOFT_IIC_SCL_WRITE(handle, 1);
+    handle->sda_write(1);
+    handle->scl_write(1);
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: start failed, scl is held low.\n");
+        handle->debug_print("soft iic: start failed, scl is held low.\n");
         return 4; /* return error */
     }
-    if (SOFT_IIC_SDA_READ(handle) == 0U)
+    if (handle->sda_read() == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: start failed, bus is busy.\n");
+        handle->debug_print("soft iic: start failed, bus is busy.\n");
         return 1; /* sda is held low by a slave, bus is busy */
     }
     a_soft_iic_half_delay(handle); /* tSU;STA */
-    SOFT_IIC_SDA_WRITE(handle, 0);
+    handle->sda_write(0);
     a_soft_iic_half_delay(handle); /* tHD;STA */
-    SOFT_IIC_SCL_WRITE(handle, 0);
+    handle->scl_write(0);
     a_soft_iic_half_delay(handle);
 
     return 0;
@@ -371,25 +346,24 @@ uint8_t soft_iic_restart(soft_iic_handle_t *handle)
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
     /* scl low first, then release sda: no stop condition can be generated */
-    SOFT_IIC_SCL_WRITE(handle, 0);
+    handle->scl_write(0);
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SDA_WRITE(handle, 1);
+    handle->sda_write(1);
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SCL_WRITE(handle, 1);
+    handle->scl_write(1);
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: restart failed, scl is held low.\n");
+        handle->debug_print("soft iic: restart failed, scl is held low.\n");
         return 4; /* return error */
     }
     a_soft_iic_half_delay(handle); /* tSU;STA */
-    SOFT_IIC_SDA_WRITE(handle, 0);
+    handle->sda_write(0);
     a_soft_iic_half_delay(handle); /* tHD;STA */
-    SOFT_IIC_SCL_WRITE(handle, 0);
+    handle->scl_write(0);
     a_soft_iic_half_delay(handle);
 
     return 0;
@@ -405,22 +379,21 @@ uint8_t soft_iic_stop(soft_iic_handle_t *handle)
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
-    SOFT_IIC_SCL_WRITE(handle, 0);
+    handle->scl_write(0);
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SDA_WRITE(handle, 0);
+    handle->sda_write(0);
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SCL_WRITE(handle, 1);
+    handle->scl_write(1);
     res = a_soft_iic_wait_scl_high(handle);
     a_soft_iic_half_delay(handle); /* tSU;STO */
-    SOFT_IIC_SDA_WRITE(handle, 1); /* stop condition */
+    handle->sda_write(1); /* stop condition */
     a_soft_iic_half_delay(handle); /* tBUF */
     if (res != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: stop failed, scl is held low.\n");
+        handle->debug_print("soft iic: stop failed, scl is held low.\n");
 
         return 4; /* return error */
     }
@@ -440,7 +413,6 @@ uint8_t soft_iic_write_byte(soft_iic_handle_t *handle, uint8_t data)
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
@@ -449,7 +421,7 @@ uint8_t soft_iic_write_byte(soft_iic_handle_t *handle, uint8_t data)
         res = a_soft_iic_write_bit(handle, (uint8_t)((data & 0x80U) != 0U));
         if (res != 0U)
         {
-            SOFT_IIC_LOG(handle, "soft iic: write byte failed.\n");
+            handle->debug_print("soft iic: write byte failed.\n");
 
             return 4; /* return error */
         }
@@ -460,7 +432,7 @@ uint8_t soft_iic_write_byte(soft_iic_handle_t *handle, uint8_t data)
     res = a_soft_iic_read_bit(handle, &ack);
     if (res != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: write byte failed.\n");
+        handle->debug_print("soft iic: write byte failed.\n");
 
         return 4;
     }
@@ -485,7 +457,6 @@ uint8_t soft_iic_read_byte(soft_iic_handle_t *handle, uint8_t ack, uint8_t *data
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
@@ -494,7 +465,7 @@ uint8_t soft_iic_read_byte(soft_iic_handle_t *handle, uint8_t ack, uint8_t *data
         res = a_soft_iic_read_bit(handle, &bit);
         if (res != 0U)
         {
-            SOFT_IIC_LOG(handle, "soft iic: read byte failed.\n");
+            handle->debug_print("soft iic: read byte failed.\n");
 
             return 4; /* return error */
         }
@@ -502,14 +473,14 @@ uint8_t soft_iic_read_byte(soft_iic_handle_t *handle, uint8_t ack, uint8_t *data
     }
 
     /* 9th clock: the master drives ack (more bytes) or nack (last byte) */
-    SOFT_IIC_SCL_WRITE(handle, 0);
+    handle->scl_write(0);
     a_soft_iic_half_delay(handle);
-    SOFT_IIC_SDA_WRITE(handle, (ack != 0U) ? 0U : 1U);
+    handle->sda_write((ack != 0U) ? 0U : 1U);
     a_soft_iic_half_delay(handle); /* tSU;DAT */
-    SOFT_IIC_SCL_WRITE(handle, 1);
+    handle->scl_write(1);
     if (a_soft_iic_wait_scl_high(handle) != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: read byte failed.\n");
+        handle->debug_print("soft iic: read byte failed.\n");
 
         return 4;
     }
@@ -531,7 +502,6 @@ uint8_t soft_iic_write(soft_iic_handle_t *handle, uint8_t addr, uint8_t *buf, ui
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
@@ -554,13 +524,13 @@ uint8_t soft_iic_write(soft_iic_handle_t *handle, uint8_t addr, uint8_t *buf, ui
     if (res != SOFT_IIC_ACK)
     {
         a_soft_iic_abort(handle);
-        SOFT_IIC_LOG(handle, "soft iic: write failed.\n");
+        handle->debug_print("soft iic: write failed.\n");
 
         return 1; /* return error */
     }
     if (soft_iic_stop(handle) != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: write failed.\n");
+        handle->debug_print("soft iic: write failed.\n");
 
         return 1; /* return error */
     }
@@ -579,7 +549,6 @@ uint8_t soft_iic_read(soft_iic_handle_t *handle, uint8_t addr, uint8_t *buf, uin
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
@@ -606,13 +575,13 @@ uint8_t soft_iic_read(soft_iic_handle_t *handle, uint8_t addr, uint8_t *buf, uin
     if (res != 0U)
     {
         a_soft_iic_abort(handle);
-        SOFT_IIC_LOG(handle, "soft iic: read failed.\n");
+        handle->debug_print("soft iic: read failed.\n");
 
         return 1; /* return error */
     }
     if (soft_iic_stop(handle) != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: read failed.\n");
+        handle->debug_print("soft iic: read failed.\n");
 
         return 1; /* return error */
     }
@@ -631,7 +600,6 @@ uint8_t soft_iic_write_reg(soft_iic_handle_t *handle, uint8_t addr, uint8_t reg,
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
@@ -658,13 +626,13 @@ uint8_t soft_iic_write_reg(soft_iic_handle_t *handle, uint8_t addr, uint8_t reg,
     if (res != SOFT_IIC_ACK)
     {
         a_soft_iic_abort(handle);
-        SOFT_IIC_LOG(handle, "soft iic: write register failed.\n");
+        handle->debug_print("soft iic: write register failed.\n");
 
         return 1; /* return error */
     }
     if (soft_iic_stop(handle) != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: write register failed.\n");
+        handle->debug_print("soft iic: write register failed.\n");
 
         return 1; /* return error */
     }
@@ -683,7 +651,6 @@ uint8_t soft_iic_read_reg(soft_iic_handle_t *handle, uint8_t addr, uint8_t reg, 
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
@@ -722,13 +689,13 @@ uint8_t soft_iic_read_reg(soft_iic_handle_t *handle, uint8_t addr, uint8_t reg, 
     if (res != 0U)
     {
         a_soft_iic_abort(handle);
-        SOFT_IIC_LOG(handle, "soft iic: read register failed.\n");
+        handle->debug_print("soft iic: read register failed.\n");
 
         return 1; /* return error */
     }
     if (soft_iic_stop(handle) != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: read register failed.\n");
+        handle->debug_print("soft iic: read register failed.\n");
 
         return 1; /* return error */
     }
@@ -747,7 +714,6 @@ uint8_t soft_iic_is_device_ready(soft_iic_handle_t *handle, uint8_t addr, uint8_
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
     if (trials == 0U)
@@ -780,13 +746,12 @@ uint8_t soft_iic_bus_recover(soft_iic_handle_t *handle)
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 
     if (a_soft_iic_bus_recover(handle) != 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: bus recover failed.\n");
+        handle->debug_print("soft iic: bus recover failed.\n");
 
         return 1; /* return error */
     }
@@ -806,7 +771,6 @@ uint8_t soft_iic_scan(soft_iic_handle_t *handle, uint8_t *addr_list, uint8_t *co
     }
     if (handle->inited == 0U)
     {
-        SOFT_IIC_LOG(handle, "soft iic: not inited.\n");
         return 3; /* not inited */
     }
 

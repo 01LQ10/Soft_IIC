@@ -47,10 +47,8 @@ if(SOFT_IIC_BUILD_EXAMPLE)
 endif()
 
 # ===================== test 测试代码（可选编译，默认 OFF） =====================
+# test 自带 gs_handle 与 LINK 绑定，直接依赖 src/ + interface/，不依赖 example
 if(SOFT_IIC_BUILD_TEST)
-    if(NOT SOFT_IIC_BUILD_EXAMPLE)
-        message(FATAL_ERROR "SOFT_IIC_BUILD_TEST 需要 SOFT_IIC_BUILD_EXAMPLE=ON（测试复用 basic 层）")
-    endif()
     target_sources(soft_iic PRIVATE
         test/driver_soft_iic_scan_test.c
     )

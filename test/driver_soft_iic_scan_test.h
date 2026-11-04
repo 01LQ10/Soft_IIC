@@ -23,13 +23,14 @@
  *
  * @file      driver_soft_iic_scan_test.h
  * @brief     driver software iic scan test header file
- * @version   1.1.0
+ * @version   2.0.0
  * @author    LQ
  * @date      2026-11-04
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>2.0.0    <td>LQ      <td>self contained test, drop the example layer dependency
  * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
@@ -52,12 +53,14 @@ extern "C" {
 
 /**
  * @brief     scan the bus and print every acknowledged address
+ * @param[in] times scan repeat times
  * @return    status code
  *            - 0 success
  *            - 1 test failed
- * @note      needs a real bus, only build it with -DSOFT_IIC_BUILD_TEST=ON
+ * @note      self contained: binds the interface layer directly, needs a real
+ *            bus, only build it with -DSOFT_IIC_BUILD_TEST=ON
  */
-uint8_t soft_iic_scan_test(void);
+uint8_t soft_iic_scan_test(uint32_t times);
 
 /**
  * @}

@@ -23,13 +23,14 @@
  *
  * @file      driver_soft_iic_interface_template.c
  * @brief     driver software iic interface template source file
- * @version   1.1.0
+ * @version   1.2.0
  * @author    LQ
  * @date      2026-11-04
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>1.2.0    <td>LQ      <td>rename to pin_init / pin_deinit, implement soft_iic_link
  * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
@@ -46,14 +47,14 @@
  * @{
  */
 
-uint8_t soft_iic_interface_init(void)
+uint8_t soft_iic_interface_pin_init(void)
 {
     /* configure scl / sda as open-drain outputs and release both lines */
 
     return 0;
 }
 
-uint8_t soft_iic_interface_deinit(void)
+uint8_t soft_iic_interface_pin_deinit(void)
 {
     /* release both lines and restore the pin mode */
 
@@ -92,24 +93,6 @@ void soft_iic_interface_delay_us(uint32_t us)
 void soft_iic_interface_debug_print(const char *const fmt, ...)
 {
     (void)fmt; /* forward to the platform log output */
-}
-
-uint8_t soft_iic_interface_link(soft_iic_handle_t *handle)
-{
-    if (handle == NULL)
-    {
-        return 2; /* invalid parameter */
-    }
-
-    DRIVER_SOFT_IIC_LINK_INIT(handle, soft_iic_handle_t); /* initialize handle */
-    DRIVER_SOFT_IIC_LINK_SCL_WRITE(handle, soft_iic_interface_scl_write);
-    DRIVER_SOFT_IIC_LINK_SDA_WRITE(handle, soft_iic_interface_sda_write);
-    DRIVER_SOFT_IIC_LINK_SCL_READ(handle, soft_iic_interface_scl_read);
-    DRIVER_SOFT_IIC_LINK_SDA_READ(handle, soft_iic_interface_sda_read);
-    DRIVER_SOFT_IIC_LINK_DELAY_US(handle, soft_iic_interface_delay_us);
-    DRIVER_SOFT_IIC_LINK_DEBUG_PRINT(handle, soft_iic_interface_debug_print);
-
-    return 0;
 }
 
 /**

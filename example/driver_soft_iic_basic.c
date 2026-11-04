@@ -23,26 +23,25 @@
  *
  * @file      driver_soft_iic_basic.c
  * @brief     driver software iic basic example source file
- * @version   1.1.0
+ * @version   1.3.0
  * @author    LQ
  * @date      2026-11-04
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>1.3.0    <td>LQ      <td>use the basic layer default macros
+ * <tr><td>2026/11/04  <td>1.2.0    <td>LQ      <td>call soft_iic_link, drop interface include and log macro
  * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
  */
 
 #include "driver_soft_iic_basic.h"
-
-/* This branch (interface) is the slot mode version: the log output goes
- * through the pin layer function soft_iic_interface_debug_print()
- * (printf -> USART1). The inline mode version lives in the inline branch. */
 #include "driver_soft_iic_interface.h"
 
-#define SOFT_IIC_BASIC_LOG(...) soft_iic_interface_debug_print(__VA_ARGS__)
+/* the example layer calls the src/ api only: every slot is bound with the
+ * DRIVER_SOFT_IIC_LINK_* macros, the log goes through the bound debug_print slot */
 
 static soft_iic_handle_t gs_handle; /**< soft iic handle */
 
@@ -54,15 +53,20 @@ static soft_iic_handle_t gs_handle; /**< soft iic handle */
 uint8_t soft_iic_basic_init(void)
 {
     /* link functions */
-    if (soft_iic_interface_link(&gs_handle) != 0U)
-    {
-        return 1; /* link failed */
-    }
+    DRIVER_SOFT_IIC_LINK_INIT(&gs_handle, soft_iic_handle_t); /* initialize handle */
+    DRIVER_SOFT_IIC_LINK_PIN_INIT(&gs_handle, soft_iic_interface_pin_init);
+    DRIVER_SOFT_IIC_LINK_PIN_DEINIT(&gs_handle, soft_iic_interface_pin_deinit);
+    DRIVER_SOFT_IIC_LINK_SCL_WRITE(&gs_handle, soft_iic_interface_scl_write);
+    DRIVER_SOFT_IIC_LINK_SDA_WRITE(&gs_handle, soft_iic_interface_sda_write);
+    DRIVER_SOFT_IIC_LINK_SCL_READ(&gs_handle, soft_iic_interface_scl_read);
+    DRIVER_SOFT_IIC_LINK_SDA_READ(&gs_handle, soft_iic_interface_sda_read);
+    DRIVER_SOFT_IIC_LINK_DELAY_US(&gs_handle, soft_iic_interface_delay_us);
+    DRIVER_SOFT_IIC_LINK_DEBUG_PRINT(&gs_handle, soft_iic_interface_debug_print);
 
-    /* the pin layer is handled by SOFT_IIC_PORT_PIN_INIT() inside soft_iic_init() */
+    /* the pin layer slot is called inside soft_iic_init() */
     if (soft_iic_init(&gs_handle) != 0U)
     {
-        SOFT_IIC_BASIC_LOG("soft iic: basic init failed.\n");
+        gs_handle.debug_print("soft iic: basic init failed.\n");
 
         return 1; /* return error */
     }
@@ -72,10 +76,10 @@ uint8_t soft_iic_basic_init(void)
 
 uint8_t soft_iic_basic_deinit(void)
 {
-    /* the pin layer is released by SOFT_IIC_PORT_PIN_DEINIT() inside soft_iic_deinit() */
+    /* the pin layer slot is released inside soft_iic_deinit() */
     if (soft_iic_deinit(&gs_handle) != 0U)
     {
-        SOFT_IIC_BASIC_LOG("soft iic: basic deinit failed.\n");
+        gs_handle.debug_print("soft iic: basic deinit failed.\n");
 
         return 1; /* return error */
     }
@@ -87,7 +91,7 @@ uint8_t soft_iic_basic_scan(uint8_t *addr_list, uint8_t *count)
 {
     if (soft_iic_scan(&gs_handle, addr_list, count) != 0U)
     {
-        SOFT_IIC_BASIC_LOG("soft iic: basic scan failed.\n");
+        gs_handle.debug_print("soft iic: basic scan failed.\n");
 
         return 1; /* return error */
     }
@@ -99,7 +103,7 @@ uint8_t soft_iic_basic_probe(uint8_t addr)
 {
     uint8_t res;
 
-    res = soft_iic_is_device_ready(&gs_handle, addr, SOFT_IIC_DEFAULT_TRIALS);
+    res = soft_iic_is_device_ready(&gs_handle, addr, SOFT_IIC_BASIC_DEFAULT_TRIALS);
     if (res != 0U)
     {
         return 1; /* no device found */
@@ -112,7 +116,7 @@ uint8_t soft_iic_basic_read_reg(uint8_t addr, uint8_t reg, uint8_t *buf, uint16_
 {
     if (soft_iic_read_reg(&gs_handle, addr, reg, buf, len) != 0U)
     {
-        SOFT_IIC_BASIC_LOG("soft iic: basic read register failed.\n");
+        gs_handle.debug_print("soft iic: basic read register failed.\n");
 
         return 1; /* return error */
     }
@@ -124,7 +128,7 @@ uint8_t soft_iic_basic_write_reg(uint8_t addr, uint8_t reg, uint8_t *buf, uint16
 {
     if (soft_iic_write_reg(&gs_handle, addr, reg, buf, len) != 0U)
     {
-        SOFT_IIC_BASIC_LOG("soft iic: basic write register failed.\n");
+        gs_handle.debug_print("soft iic: basic write register failed.\n");
 
         return 1; /* return error */
     }
@@ -134,7 +138,7 @@ uint8_t soft_iic_basic_write_reg(uint8_t addr, uint8_t reg, uint8_t *buf, uint16
 
 uint8_t soft_iic_basic_dump(uint8_t addr, uint8_t start_reg, uint8_t count)
 {
-    uint8_t buf[16];
+    uint8_t buf[SOFT_IIC_BASIC_DEFAULT_DUMP_WIDTH];
     uint8_t done = 0U;
     uint8_t i;
     uint8_t n;
@@ -155,12 +159,12 @@ uint8_t soft_iic_basic_dump(uint8_t addr, uint8_t start_reg, uint8_t count)
         {
             return 1; /* return error */
         }
-        SOFT_IIC_BASIC_LOG("soft iic: 0x%02X:", (unsigned int)(start_reg + done));
+        gs_handle.debug_print("soft iic: 0x%02X:", (unsigned int)(start_reg + done));
         for (i = 0U; i < n; i++)
         {
-            SOFT_IIC_BASIC_LOG(" %02X", (unsigned int)buf[i]);
+            gs_handle.debug_print(" %02X", (unsigned int)buf[i]);
         }
-        SOFT_IIC_BASIC_LOG("\n");
+        gs_handle.debug_print("\n");
         done = (uint8_t)(done + n);
     }
 

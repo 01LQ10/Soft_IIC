@@ -23,13 +23,14 @@
  *
  * @file      driver_soft_iic_interface.h
  * @brief     driver software iic interface header file
- * @version   1.1.0
+ * @version   1.2.0
  * @author    LQ
  * @date      2026-11-04
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>1.2.0    <td>LQ      <td>rename to pin_init / pin_deinit, drop interface_link
  * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
@@ -39,6 +40,10 @@
  * is User/Src/driver_soft_iic_interface.c, PY32F030 + HAL). To port to a
  * new platform, replace that one implementation file only, the driver body
  * (src/) stays untouched.
+ *
+ * Layer rule: this header is included by the platform implementation file
+ * and by src/driver_soft_iic.c only. The example and test layers must not
+ * include it, they bind every slot with the DRIVER_SOFT_IIC_LINK_* macros.
  */
 
 #ifndef DRIVER_SOFT_IIC_INTERFACE_H
@@ -63,7 +68,7 @@ extern "C" {
  *            - 1 initialization failed
  * @note      must release any hardware iic peripheral using the same pins first
  */
-uint8_t soft_iic_interface_init(void);
+uint8_t soft_iic_interface_pin_init(void);
 
 /**
  * @brief     close the pin layer
@@ -72,7 +77,7 @@ uint8_t soft_iic_interface_init(void);
  *            - 1 deinitialization failed
  * @note      releases both lines so a hardware iic peripheral can take over
  */
-uint8_t soft_iic_interface_deinit(void);
+uint8_t soft_iic_interface_pin_deinit(void);
 
 /**
  * @brief     drive the scl line
@@ -120,15 +125,10 @@ void soft_iic_interface_delay_us(uint32_t us);
  */
 void soft_iic_interface_debug_print(const char *const fmt, ...);
 
-/**
- * @brief      link every pin slot of the handle to this platform
- * @param[in]  *handle pointer to a soft_iic_handle_t structure
- * @return     status code
- *             - 0 success
- *             - 2 handle is null
- * @note       clears the handle first, then fills the pin and platform slots
- */
-uint8_t soft_iic_interface_link(soft_iic_handle_t *handle);
+/* the caller binds every slot with the DRIVER_SOFT_IIC_LINK_* macros
+ * declared in driver_soft_iic.h; the pin layer functions above are bound to
+ * the pin_init / pin_deinit slots, the example and test layers still need
+ * this header to reference those function names */
 
 /**
  * @}

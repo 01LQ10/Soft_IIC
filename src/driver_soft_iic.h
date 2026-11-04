@@ -23,13 +23,15 @@
  *
  * @file      driver_soft_iic.h
  * @brief     driver software iic header file
- * @version   1.1.0
+ * @version   1.3.0
  * @author    LQ
  * @date      2026-11-04
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>1.3.0    <td>LQ      <td>pin init/deinit slots, soft_iic_link api
+ * <tr><td>2026/11/04  <td>1.2.0    <td>LQ      <td>remove inline branch notes, fix ack doc
  * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
@@ -40,11 +42,9 @@
  *     9 clock bus recovery;
  *   - every pin access goes through the handle function pointer slots
  *     (LibDriver injection style), no HAL / platform header appears in src/;
- *   - this branch (interface) is the slot mode version
- *     (SOFT_IIC_PORT_INLINE=0); the port layer macros at the top of
- *     driver_soft_iic.c map to the handle slots, so multiple instances are
- *     possible (one handle per bus) and host mock testing is easy;
- *     the inline mode (static inline port layer) lives in the inline branch.
+ *   - the port layer macros at the top of driver_soft_iic.c map to the
+ *     handle function pointer slots, so multiple instances are possible
+ *     (one handle per bus) and host mock testing is easy.
  *
  * Return code convention (LibDriver style):
  *   - 0 success (slave acknowledged, for soft_iic_write_byte)
@@ -56,8 +56,8 @@
  * Timing note: iic only constrains the minimum pulse widths, so the bit period
  * can only be stretched, never violated. Every half bit period (including the
  * start / stop setup and hold times) is derived from handle->half_delay_us;
- * the default is 4 us, giving an effective bus rate of about 100 kHz at
- * 48 MHz.
+ * the default is 4 us, giving an effective bus rate of about 45 kHz at
+ * 48 MHz (measured on PY32F030, see the README).
  */
 
 #ifndef DRIVER_SOFT_IIC_H
@@ -76,9 +76,15 @@ extern "C" {
  * @{
  */
 
-#define SOFT_IIC_DEFAULT_HALF_DELAY_US (4U)           /**< default half bit period in us, about 100 kHz in practice */
+#ifndef SOFT_IIC_DEFAULT_HALF_DELAY_US
+#define SOFT_IIC_DEFAULT_HALF_DELAY_US (4U)           /**< default half bit period in us, about 45 kHz in practice */
+#endif
+#ifndef SOFT_IIC_DEFAULT_STRETCH_TIMEOUT_US
 #define SOFT_IIC_DEFAULT_STRETCH_TIMEOUT_US (10000U)  /**< default clock stretching timeout in us */
+#endif
+#ifndef SOFT_IIC_DEFAULT_TRIALS
 #define SOFT_IIC_DEFAULT_TRIALS (3U)                  /**< default device ready probe trials */
+#endif
 #define SOFT_IIC_MAX_ADDRESS (0x7FU)                  /**< 7 bit slave address upper limit */
 #define SOFT_IIC_SCAN_ADDRESS_START (0x08U)           /**< scan start address, after the reserved range */
 #define SOFT_IIC_SCAN_ADDRESS_END (0x77U)             /**< scan end address, before the reserved range */
@@ -98,6 +104,8 @@ typedef enum
  */
 typedef struct soft_iic_handle_s
 {
+    uint8_t (*pin_init)(void); /**< point to a pin_init function address */
+    uint8_t (*pin_deinit)(void); /**< point to a pin_deinit function address */
     void (*scl_write)(uint8_t level); /**< point to a scl_write function address */
     void (*sda_write)(uint8_t level); /**< point to a sda_write function address */
     uint8_t (*scl_read)(void); /**< point to a scl_read function address */
@@ -127,6 +135,8 @@ typedef struct soft_iic_info_s
 /**
  * @brief link the pin and platform slots
  */
+#define DRIVER_SOFT_IIC_LINK_PIN_INIT(handle, f) ((handle)->pin_init = (f))
+#define DRIVER_SOFT_IIC_LINK_PIN_DEINIT(handle, f) ((handle)->pin_deinit = (f))
 #define DRIVER_SOFT_IIC_LINK_SCL_WRITE(handle, f) ((handle)->scl_write = (f))
 #define DRIVER_SOFT_IIC_LINK_SDA_WRITE(handle, f) ((handle)->sda_write = (f))
 #define DRIVER_SOFT_IIC_LINK_SCL_READ(handle, f) ((handle)->scl_read = (f))
@@ -141,9 +151,10 @@ typedef struct soft_iic_info_s
  *             - 0 success
  *             - 1 bus is stuck (recovery failed)
  *             - 2 handle is null
- *             - 3 pin slot is null
- * @note       releases both lines, checks the bus is idle, falls back to the
- *             9-clock recovery sequence when a slave holds SDA low
+ *             - 3 pin slot or the log slot is null
+ * @note       calls the handle pin_init slot first, then releases both lines,
+ *             checks the bus is idle and falls back to the 9-clock recovery
+ *             sequence when a slave holds SDA low
  */
 uint8_t soft_iic_init(soft_iic_handle_t *handle);
 
@@ -154,7 +165,8 @@ uint8_t soft_iic_init(soft_iic_handle_t *handle);
  *             - 0 success
  *             - 2 handle is null
  *             - 3 handle is not inited
- * @note       releases both lines (open-drain high) but keeps the pin slots valid
+ * @note       releases both lines (open-drain high), calls the pin_deinit slot
+ *             and keeps the function pointer slots valid
  */
 uint8_t soft_iic_deinit(soft_iic_handle_t *handle);
 
@@ -165,7 +177,8 @@ uint8_t soft_iic_deinit(soft_iic_handle_t *handle);
  * @return     status code
  *             - 0 success
  *             - 2 handle is null or us is 0
- * @note       the real bit period is us + the pin callback overhead (about 1.2 us)
+ * @note       one delay call costs us + about 2.2 us and one bit period is
+ *             three calls, see the timing section of the README
  */
 uint8_t soft_iic_set_half_delay(soft_iic_handle_t *handle, uint16_t us);
 
@@ -224,7 +237,7 @@ uint8_t soft_iic_write_byte(soft_iic_handle_t *handle, uint8_t data);
 /**
  * @brief      read one byte and send the acknowledge bit
  * @param[in]  *handle pointer to a soft_iic_handle_t structure
- * @param[in]  ack 0 sends ack (more bytes follow), 1 sends nack (last byte)
+ * @param[in]  ack 0 sends nack (last byte), nonzero sends ack (more bytes follow)
  * @param[out] *data pointer to the read data
  * @return     status code
  *             - 0 success

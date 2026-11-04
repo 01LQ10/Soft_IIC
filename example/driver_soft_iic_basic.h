@@ -23,13 +23,14 @@
  *
  * @file      driver_soft_iic_basic.h
  * @brief     driver software iic basic example header file
- * @version   1.1.0
+ * @version   1.2.0
  * @author    LQ
  * @date      2026-11-04
  *
  * <h3>history</h3>
  * <table>
  * <tr><th>Date        <th>Version  <th>Author  <th>Description
+ * <tr><td>2026/11/04  <td>1.2.0    <td>LQ      <td>add default macro definitions
  * <tr><td>2026/11/04  <td>1.1.0    <td>LQ      <td>format the comments
  * <tr><td>2026/11/04  <td>1.0.0    <td>LQ      <td>first upload
  * </table>
@@ -51,6 +52,13 @@ extern "C" {
  */
 
 #define SOFT_IIC_BASIC_MAX_DEVICES (16U) /**< scan list capacity */
+
+#ifndef SOFT_IIC_BASIC_DEFAULT_TRIALS
+#define SOFT_IIC_BASIC_DEFAULT_TRIALS (3U)            /**< default device ready probe trials */
+#endif
+#ifndef SOFT_IIC_BASIC_DEFAULT_DUMP_WIDTH
+#define SOFT_IIC_BASIC_DEFAULT_DUMP_WIDTH (16U)       /**< default dump bytes per read block */
+#endif
 
 /**
  * @brief     initialize the basic example
